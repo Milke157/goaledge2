@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoalEdge</title>
+<style>
+ body{font-family:sans-serif;background:#0e1a14;color:#e8f5ec;margin:0;padding:16px}
+ h1{color:#4ade80;margin:0 0 4px} small{color:#8ab898}
+ .g{margin:12px 0} label{display:block;font-size:13px;color:#9fd4ad;margin-bottom:2px}
+ input{width:70px;padding:8px;border-radius:8px;border:1px solid #2e5b41;background:#16281e;color:#fff}
+ button{width:100%;padding:14px;border:none;border-radius:10px;background:#22a35a;color:#fff;
+        font-size:16px;font-weight:bold;margin-top:12px}
+ .b{background:#16281e;border:1px solid #2e5b41;border-radius:10px;padding:12px;margin:10px 0}
+ .ev{color:#4ade80;font-weight:bold} .p{color:#fbbf24}
+</style>
+</head>
+<body>
+<h1>⚽ GoalEdge</h1>
+<small>Digite as odds da casa de apostas</small>
+
+<div class="g">
+ <label>Vitória casa / Empate / Vitória fora</label>
+ <input id="oh" type="number" step="0.01" value="2.10">
+ <input id="od" type="number" step="0.01" value="3.30">
+ <input id="oa" type="number" step="0.01" value="3.60">
+</div>
+<div class="g">
+ <label>Over 2.5 / Under 2.5 / Ambas marcam</label>
+ <input id="o25" type="number" step="0.01" value="1.95">
+ <input id="u25" type="number" step="0.01" value="1.85">
+ <input id="obtts" type="number" step="0.01" value="1.80">
+</div>
+<div class="g">
+ <label>Banca (R$)</label>
+ <input id="bank" type="number" value="100">
+</div>
+<button onclick="gerar()">⚡ Gerar bilhetes</button>
+<div id="out"></div>
+
+<script>
+const N=20000;
+const rnd=()=>Math.random();
+function pois(lam){let L=Math.exp(-lam),k=0,p=1;do{p*=rnd();k++}while(p>L);return k-1}
+function pmf(lam,k){return Math.exp(-lam)*Math.pow(lam,k)/fat(k)}
+function fat(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r}
+
+// estima gols esperados a partir das odds 1X2
+function fit(oh,od,oa){
+ let p=[1/oh,1/od,1/oa],s=p[0]+p[1]+p[2];p=p.map(x=>x/s);
+ let best=[1.4,1.1],err=1e9;
+ for(let lh=2;lh<=35;lh++)for(let la=2;la<=35;la++){
+   const L=lh/10,A=la/10;
+   let ph=new Array(11),pa=new Array(11),v=[0,0,0];
+   for(let i=0;i<=10;i++)ph[i]=pmf(L,i);
+   for(let j=0;j<=10;j++)pa[j]=pmf(A,j);
+   for(let i=0;i<=10;i++)for(let j=0;j<=10;j++){
+     const pp=ph[i]*pa[j];
+     if(i>j)v[0]+=pp;else if(i==j)v[1]+=pp;else v[2]+=pp;
+   }
+   const e=Math.abs(v[0]-p[0])+Math.abs(v[1]-p[1])+Math.abs(v[2]-p[2]);
+   if(e<err){err=e;best=[L,A]}
+ }
+ return best;
+}
+
+const M={
+ "Casa vence":(h,a)=>h>a, "Empate":(h,a)=>h==a, "Fora vence":(h,a)=>h<a,
+ "Over 2.5 gols":(h,a)=>h+a>=3, "Under 2.5 gols":(h,a)=>h+a<=2,
+ "Over 3.5 gols":(h,a)=>h+a>=4, "Ambas marcam":(h,a)=>h>0&&a>0,
+ "Ambas NÃO marcam":(h,a)=>h==0||a==0,
+ "Casa +1.5 gols":(h,a)=>h>=2, "Fora +1.5 gols":(h,a)=>a>=2,
+};
+
+function gerar(){
+ const oh=+oh_.value||+document.getElementById("oh").value,
+       od=+document.getElementById("od").value, oa=+document.getElementById("oa").value,
+       o25=+document.getElementById("o25").value, u25=+document.getElementById("u25").value,
+       ob=+document.getElementById("obtts").value, bank=+document.getElementById("bank").value||100;
+ const odds={"Casa vence":oh,"Empate":od,"Fora vence":oa,
+   "Over 2.5 gols":o25,"Under 2.5 gols":u25,"Over 3.5 gols":Math.round(o25*1.9*100)/100,
+   "Ambas marcam":ob,"Ambas NÃO marcam":Math.round(1/(1-1/ob)*100)/100,
+   "Casa +1.5 gols":1.45,"Fora +1.5 gols":1.75};
+ const [lh,la]=fit(oh,od,oa);
+ const sims=[];for(let i=0;i<N;i++)sims.push([pois(lh),pois(la)]);
+ const mask={};for(const m in M)mask[m]=sims.map(([h,a])=>M[m](h,a));
+ // monta todos os combos de até 3 seleções
+ let pool=Object.keys(M).filter(m=>odds[m]&&
+   sims.reduce((s,[h,a],i)=>s+(mask[m][i]?1:0),0)/N*odds[m]-1>0.02)
+   .sort((x,y)=>sims.reduce((s,[h,a],i)=>s+(mask[y][i]?1:0),0)*odds[y]
+       - sims.reduce((s,[h,a],i)=>s+(mask[x][i]?1:0),0)*odds[x]).slice(0,8);
+ let bilhetes=[];
+ const combos=(arr,k)=>k==1?arr.map(x=>[x]):
+   arr.flatMap((v,i)=>combos(arr.slice(i+1),k-1).map(c=>[v,...c]));
+ for(const k of[1,2,3])for(const c of combos(pool,k)){
+   let ok=sims.map(()=>true);
+   for(const s of c)ok=ok.map((x,i)=>x&&mask[s][i]);
+   const p=ok.filter(Boolean).length/N;
+   const odd=c.reduce((o,s)=>o*odds[s],1), ev=p*odd-1;
+   if(ev>0.03){const kb=(p*(odd-1)-(1-p))/(odd-1);
+     bilhetes.push({c,p,odd:Math.round(odd*100)/100,ev,stake:Math.max(0,kb*0.25*bank)});}
+ }
+ bilhetes.sort((a,b)=>b.ev-a.ev);bilhetes=bilhetes.slice(0,5);
+ let html=`<p>Gols esperados: <b>${lh.toFixed(1)} x ${la.toFixed(1)}</b></p>`;
+ if(!bilhetes.length)html+="<p>Nenhum bilhete com valor nessas odds.</p>";
+ bilhetes.forEach((b,i)=>{
+   html+=`<div class="b"><b>Bilhete ${i+1}</b> — odd ${b.odd}<br>`;
+   b.c.forEach(s=>html+=`• ${s}<br>`);
+   html+=`<span class="p">Chance real: ${(b.p*100).toFixed(1)}%</span> | `+
+         `<span class="ev">EV: ${(b.ev*100).toFixed(1)}%</span><br>`+
+         `Stake sugerido: R$ ${b.stake.toFixed(2)}</div>`;
+ });
+ document.getElementById("out").innerHTML=html;
+}
+</script>
+</body>
+</html>
